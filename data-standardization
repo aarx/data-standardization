@@ -1,0 +1,312 @@
+import os
+import pandas as pd
+from openpyxl import load_workbook
+import re
+from fuzzywuzzy import fuzz
+
+# Functions from the 2nd script
+
+def is_valid_ip(ip):
+    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+    return re.fullmatch(ip_pattern, str(ip)) is not None
+
+def find_common_name(Vulnerability, Database_df):
+    best_match = None
+    best_score = 0
+
+    for db_Vulnerability in Database_df['Vulnerability']:
+        similarity_score = fuzz.ratio(Vulnerability.lower(), db_Vulnerability.lower())
+
+        threshold = 50
+
+        if similarity_score > threshold and similarity_score > best_score:
+            best_match = db_Vulnerability
+            best_score = similarity_score
+
+    if best_match is not None:
+        return Database_df.loc[Database_df['Vulnerability'] == best_match, 'common name'].values[0]
+    else:
+        return None
+
+def update_results_status():
+    input_file_path = '/root/script-files/extras/req-files/output/vendor-tracker.xlsx'
+    output_file_path = '/root/script-files/extras/req-files/output/vendor-tracker-updated.xlsx'
+    print("Output File Path:", output_file_path)
+
+    # Load the input workbook and DataFrames
+    input_workbook = load_workbook(input_file_path, read_only=True)
+    print(f"Attempting to read from: {input_file_path}")
+    Scope_df = pd.read_excel(input_file_path, sheet_name='Scope', engine='openpyxl')
+    print(f"Attempt Successful: {input_file_path}")
+    results_df = pd.read_excel(input_file_path, sheet_name='results', engine='openpyxl')
+    Scope_df = pd.read_excel(input_file_path, sheet_name='Scope', engine='openpyxl')
+    Archer_df = pd.read_excel(input_file_path, sheet_name='Archer', engine='openpyxl')
+    Ports_df = pd.read_excel(input_file_path, sheet_name='Ports', engine='openpyxl')
+    Database_df = pd.read_excel(input_file_path, sheet_name='Database', engine='openpyxl')  # Load the "Database" sheet
+    Vulnerability_df = pd.read_excel(input_file_path, sheet_name='Vulnerability', engine='openpyxl')  # Load the "vuln" sheet
+
+    # Step 1: Update 'Country' column in 'results' sheet if it is "unknown"
+    unknown_country_mask = results_df['Country'] == 'unknown'
+    for index, row in results_df[unknown_country_mask].iterrows():
+        matching_scope_row = Scope_df[Scope_df['ip'] == row['ip']]
+        if not matching_scope_row.empty:
+            results_df.at[index, 'Country'] = matching_scope_row['country'].values[0]
+
+    # Step 2: Concatenate Region, Country, and IP columns to create UID in results sheet
+    results_df['UID'] = results_df['Region'] + results_df['Country'] + results_df['IP']
+
+    # Step 3: Concatenate Region, Country, and IP columns to create UID in scope sheet
+    Scope_df['UID'] = Scope_df['Region'] + Scope_df['Country'] + Scope_df['IP']
+
+    # Step 4: Create an empty list to store reasons for each row in the 'results' sheet
+    results_df['reason'] = ''
+
+    # Step 5: Compare IP in results to IP in scope, and update "status" and "reason" columns accordingly
+    def update_status(row, scope_ips):
+        if is_valid_ip(row['IP']) and row['IP'] not in scope_ips:
+            return 'descoped'
+        else:
+            return results_df.loc[results_df['IP'] == row['IP'], 'Status'].values[0]
+
+    results_df['Status'] = results_df.apply(update_status, scope_ips=Scope_df['IP'].tolist(), axis=1)
+    results_df.loc[~results_df['IP'].apply(is_valid_ip), 'reason'] += 'URL-related row, '
+    results_df.loc[results_df['IP'].apply(is_valid_ip) & ~results_df['IP'].isin(Scope_df['IP'].tolist()), 'reason'] += 'ip not in scope, '
+
+    # Step 6: Compare UIDs and update status in results sheet
+    scope_uids = set(Scope_df['UID'])
+    results_df.loc[~results_df['UID'].isin(scope_uids), 'reason'] += 'incorrect region, '
+
+    # Additional condition for valid IPs
+    results_df.loc[results_df['IP'].apply(is_valid_ip) & ~results_df['UID'].isin(scope_uids), 'status'] = 'descoped'
+    results_df.loc[results_df['IP'].apply(is_valid_ip) & ~results_df['UID'].isin(scope_uids), 'reason'] += 'UID not in scope, '
+
+    # Step 7: Check if the 'ports' column exists in the 'ports' sheet
+    ports_set = set(Ports_df['Ports'].dropna().astype(str).tolist())
+    results_df['status'] = results_df.apply(lambda row: 'descoped' if str(row['Port']) in ports_set else row['status'], axis=1)
+    results_df.loc[results_df['Port'].astype(str).isin(ports_set), 'reason'] += 'port invalid, '
+
+    # Step 8: Load the 'Vulnerability' sheet and create a set of tuples containing (IP, Vulnerability)
+    Vulnerability_tuples = set(zip(Vulnerability_df['IP'], Vulnerability_df['Vulnerability']))
+   
+    # Function to update status and reason based on matches
+    def update_status_and_reason(row, vuln_set):
+        if (row['IP'], row['Vulnerability']) in vuln_set:
+            row['Status'] = 'descoped'  # Mark the row as descoped
+            row['reason'] = 'whitelisted Vulnerability'  # Set the reason to "whitelisted Vulnerability"
+        return row
+   
+    # Apply the update_status_and_reason function to update 'status' and 'reason'
+    results_df = results_df.apply(update_status_and_reason, vuln_set=Vulnerability_tuples, axis=1)
+
+    # Step 9: Compare IP in results to IP in archer, and update "status" and "reason" columns accordingly
+    archer_dict = dict(zip(Archer_df['IP'], Archer_df['Archer']))
+    results_df['status'] = results_df.apply(lambda row: 'Risk Accepted' if row['IP'] in archer_dict else row['status'], axis=1)
+    results_df.loc[results_df['IP'].isin(archer_dict), 'reason'] += 'archer available, '
+    results_df['notes'] = results_df['IP'].map(archer_dict)
+
+    # Additional step to update 'Country' column in 'results' sheet if it is "unknown"
+    unknown_country_mask = results_df['Country'] == 'unknown'
+    for index, row in results_df[unknown_country_mask].iterrows():
+        matching_scope_row = Scope_df[Scope_df['IP'] == row['IP']]
+        if not matching_scope_row.empty:
+            results_df.at[index, 'Country'] = matching_scope_row['country'].values[0]
+
+    # Create a new Excel workbook and write the updated data
+    with pd.ExcelWriter(output_file_path, engine='openpyxl') as writer:
+        writer.book = load_workbook(input_file_path)
+        writer.sheets = dict((ws.title, ws) for ws in writer.book.worksheets)
+        results_df.to_excel(writer, sheet_name='results', index=False)
+        Scope_df.to_excel(writer, sheet_name='scope', index=False)
+
+        # Copy the sheets (except 'results', 'scope', 'archer', 'ports', and 'Vulnerability') to the new workbook
+        sheet_names = input_workbook.sheetnames
+        for sheet_name in sheet_names:
+            if sheet_name not in ['results', 'scope', 'archer', 'ports', 'Vulnerability']:
+                input_sheet = input_workbook[sheet_name]
+                output_sheet = writer.book.create_sheet(title=sheet_name)
+
+                for row in input_sheet.iter_rows(values_only=True):
+                    output_sheet.append(row)
+
+    # Update the 'mapped-vulnerability' column based on the "Database" sheet
+    print("Columns in results_df:", results_df.columns)
+    print(Database_df.columns)
+    results_df['mapped-vulnerability'] = results_df['Vulnerability'].apply(lambda x: find_common_name(x, Database_df))
+
+    for Vulnerability in results_df['Vulnerability']:
+        if find_common_name(Vulnerability, Database_df) is None:
+            results_df.loc[results_df['Vulnerability'] == Vulnerability, 'mapped-vulnerability'] = 'Uncategorized'
+            new_row = {'common name': 'Uncategorized', 'Vulnerability': Vulnerability}
+            Database_df = Database_df.append(new_row, ignore_index=True)
+			
+    results_df['duplicate-id'] = results_df['IP'] + ' ' + results_df['Port'].astype(str) + ' ' + results_df['mapped-vulnerability']
+
+    
+	
+    # Create a new Excel workbook and write the updated data (results, Scope, Database, Ports, Archer)
+    with pd.ExcelWriter(output_file_path, engine='openpyxl') as writer:
+        writer.book = load_workbook(input_file_path)
+        writer.sheets = dict((ws.title, ws) for ws in writer.book.worksheets)
+        results_df.to_excel(writer, sheet_name='results', index=False)
+        Scope_df.to_excel(writer, sheet_name='Scope', index=False)
+        Database_df.to_excel(writer, sheet_name='Database', index=False)
+        Ports_df.to_excel(writer, sheet_name='Ports', index=False)
+        Archer_df.to_excel(writer, sheet_name='Archer', index=False)
+    
+    # Append other sheets to the updated file
+    for sheet_name in sheet_names:
+        if sheet_name not in ['results', 'Scope', 'Database', 'Ports', 'Archer', 'Vulnerability']:
+            input_sheet = input_workbook[sheet_name]
+            output_sheet = writer.book.create_sheet(title=sheet_name)
+    
+            for row in input_sheet.iter_rows(values_only=True):
+                output_sheet.append(row)
+
+    print("Script completed successfully.")
+
+
+# Main operations from the 1st script
+# Specify the folder containing the Excel files to merge
+input_folder_path = "/root/script-files/extras/req-files/input/"
+
+# Specify the output folder for the vendor tracker
+output_folder_path = "/root/script-files/extras/req-files/output/"
+
+# Define the desired columns that must be in the "vendor tracker"
+desired_columns = [
+    "Region", "Country", "IP", "Port", "Protocol", "Vulnerability", "Severity",
+    "Category", "Status", "Description", "Impact", "Recommendation", "CVE", "CWE",
+    "CVSS", "Fix-Owner", "Stakeholder-Comments", "Vendor-Reported-Date",
+    "Internal-Reported-Date", "Due-Date", "Over-SLA", "Assigned-Pentester",
+    "Tracking-Doc", "Status-Update", "MIST-Owner", "MIST-Team-Notes",
+    "Char-Count", "Unique-ID", "mapped-vulnerability"
+]
+
+# Define a dictionary to map "multiple trackers" values to "vendor tracker" values for each field
+field_mapping = {
+    "IP": ["ip", "ip_address", "source_ip"],
+    "Port": ["port", "port_number"],
+    "Vulnerability": ["title", "issue_name", "Vulnerability"],
+    "Description": ["description", "details"],
+    "CVSS": ["cvss", "risk_score"],
+    "CVE": ["cve", "Vulnerability_id"],
+    "Recommendation": ["remediation", "recommendations"],
+    # ... Add mappings for other fields as needed
+}
+
+# Initialize an empty DataFrame with the desired columns
+merged_df = pd.DataFrame(columns=desired_columns)
+
+# Loop through each file in the input folder
+for filename in os.listdir(input_folder_path):
+    if filename.endswith(".xlsx"):
+        file_path = os.path.join(input_folder_path, filename)
+        df = pd.read_excel(file_path)
+
+        # Iterate through the desired columns and their mappings
+        for vendor_col, possible_names in field_mapping.items():
+            for name in possible_names:
+                if name.lower() in df.columns.str.lower():
+                    df.rename(columns={name: vendor_col}, inplace=True)
+                    break
+
+        # Add missing columns with blank values to ensure consistency
+        missing_columns = [col for col in desired_columns if col not in df.columns]
+        for col in missing_columns:
+            df[col] = ""
+
+        # Reorder columns to match the desired order
+        df = df[desired_columns]
+
+        # Append the DataFrame to the merged DataFrame
+        merged_df = pd.concat([merged_df, df], ignore_index=True)
+
+# Save the merged DataFrame to the specified output location
+output_file_path = os.path.join(output_folder_path, "vendor-tracker.xlsx")
+merged_df.to_excel(output_file_path, index=False, engine='openpyxl', sheet_name="results")
+
+# Now, add sheets for the five trackers in the vendor tracker
+vendor_tracker_workbook = load_workbook(output_file_path)
+vendor_tracker_writer = pd.ExcelWriter(output_file_path, engine='openpyxl', mode='a')
+vendor_tracker_writer.book = vendor_tracker_workbook
+
+for tracker_name in ["Archer", "Database", "Ports", "Scope", "Vulnerability"]:
+    tracker_file_path = os.path.join(input_folder_path, "other", f"{tracker_name}.xlsx")
+    tracker_df = pd.read_excel(tracker_file_path)
+    tracker_df.to_excel(vendor_tracker_writer, sheet_name=tracker_name, index=False)
+
+# Save the updated vendor tracker
+vendor_tracker_writer.save()
+vendor_tracker_writer.close()
+
+# Now, after saving the vendor tracker, we'll perform the sanity checks from the 2nd script
+
+# Update results_df path to point to the 'vendor-tracker.xlsx' file 
+input_file_path = os.path.join(output_folder_path, "vendor-tracker.xlsx")
+
+# Call the function to perform sanity checks and update the vendor tracker
+update_results_status()
+
+# Finally, append the "results" sheet from the "vendor tracker" to "gold-tracker.xlsx" (from the 1st script)
+vendor_tracker_updated_path = os.path.join(output_folder_path, "vendor-tracker-updated.xlsx")
+vendor_tracker_results = pd.read_excel(vendor_tracker_updated_path, sheet_name="results")
+gold_tracker_path = os.path.join(input_folder_path, "other", "gold-tracker.xlsx")
+
+# Read the data from the vendor tracker and the gold tracker
+vendor_tracker_results = pd.read_excel(vendor_tracker_updated_path, sheet_name="results")
+gold_tracker_results = pd.read_excel(gold_tracker_path, sheet_name="results")
+
+# Load the existing workbook
+gold_tracker_workbook = load_workbook(gold_tracker_path)
+
+# Check if the "results" sheet exists in the workbook
+if "results" in gold_tracker_workbook.sheetnames:
+    print("Results sheet found.")
+    # Read the existing "results" sheet into a DataFrame
+    gold_tracker_results = pd.read_excel(gold_tracker_path, sheet_name="results")
+    # Combine the data from both trackers
+    combined_results = pd.concat([gold_tracker_results, vendor_tracker_results], ignore_index=True)
+else:
+    print("Results sheet not found. Using vendor tracker results only.")
+    # If the "results" sheet does not exist, use the vendor tracker results as the combined results
+    combined_results = vendor_tracker_results
+
+# Create a dictionary to track the first instance of each duplicate ID and its Vendor-Reported-Date
+first_instance_dict = {}
+
+# Iterate through the combined DataFrame to identify duplicates
+for index, row in combined_results.iterrows():
+    duplicate_id = row.get('duplicate-id')
+    duplicate_status = row.get('duplicate-Status')
+    vendor_reported_date = row.get('Vendor-Reported-Date')
+
+    if duplicate_id in first_instance_dict:
+        # Update the duplicate Status for all rows with the same duplicate ID
+        combined_results.loc[combined_results['duplicate-id'] == duplicate_id, 'duplicate-Status'] = 'duplicate'
+        # Get the Vendor-Reported-Date from the first instance and set it for the current row
+        combined_results.at[index, 'first-instance'] = first_instance_dict[duplicate_id]
+    else:
+        # Store the Vendor-Reported-Date for the first instance
+        first_instance_dict[duplicate_id] = vendor_reported_date
+
+# Write the updated DataFrame to the "results" sheet
+with pd.ExcelWriter(gold_tracker_path, engine='openpyxl') as writer:
+    writer.book = gold_tracker_workbook
+    # Remove the existing "results" sheet if it exists
+    if 'results' in writer.book.sheetnames:
+        del writer.book['results']
+    combined_results.to_excel(writer, sheet_name='results', index=False)
+    print("Data written to the results sheet.")
+
+    # Remove the existing "Database" sheet if it exists
+    if 'Database' in writer.book.sheetnames:
+        del writer.book['Database']
+    
+    # Add the "Database" sheet from vendor-tracker-updated.xlsx to gold-tracker.xlsx
+    vendor_database_df = pd.read_excel(vendor_tracker_updated_path, sheet_name="Database")
+    vendor_database_df.to_excel(writer, sheet_name='Database', index=False)
+    print("Database sheet updated successfully.")
+
+# Save the updated workbook
+gold_tracker_workbook.save(gold_tracker_path)
+print("Workbook saved successfully.")
