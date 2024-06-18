@@ -239,6 +239,7 @@ for tracker_name in ["Archer", "Database", "Ports", "Scope", "Vulnerability"]:
 vendor_tracker_writer.save()
 vendor_tracker_writer.close()
 
+
 # Now, after saving the vendor tracker, we'll perform the sanity checks from the 2nd script
 
 # Update results_df path to point to the 'vendor-tracker.xlsx' file 
@@ -271,23 +272,38 @@ else:
     # If the "results" sheet does not exist, use the vendor tracker results as the combined results
     combined_results = vendor_tracker_results
 
-# Create a dictionary to track the first instance of each duplicate ID and its Vendor-Reported-Date
+# Ensure 'duplicate-Status' and 'first-instance' columns are created and treated as string and datetime respectively
+if 'duplicate-Status' not in combined_results.columns:
+    combined_results['duplicate-Status'] = ''
+
+combined_results['duplicate-Status'] = combined_results['duplicate-Status'].astype(str)
+
+if 'first-instance' not in combined_results.columns:
+    combined_results['first-instance'] = pd.NaT
+
+combined_results['first-instance'] = pd.to_datetime(combined_results['first-instance'], errors='coerce')
+
+# Ensure 'Vendor-Reported-Date' is in datetime format
+combined_results['Vendor-Reported-Date'] = pd.to_datetime(combined_results['Vendor-Reported-Date'], errors='coerce')
+
+# Create a dictionary to track the first instance of each duplicate ID
 first_instance_dict = {}
 
 # Iterate through the combined DataFrame to identify duplicates
 for index, row in combined_results.iterrows():
     duplicate_id = row.get('duplicate-id')
-    duplicate_status = row.get('duplicate-Status')
     vendor_reported_date = row.get('Vendor-Reported-Date')
 
     if duplicate_id in first_instance_dict:
-        # Update the duplicate Status for all rows with the same duplicate ID
-        combined_results.loc[combined_results['duplicate-id'] == duplicate_id, 'duplicate-Status'] = 'duplicate'
-        # Get the Vendor-Reported-Date from the first instance and set it for the current row
+        # Update the duplicate Status for all rows with the same duplicate ID except the first instance
+        combined_results.at[index, 'duplicate-Status'] = 'duplicate'
+        # Set the 'first-instance' column to the date of the first occurrence
         combined_results.at[index, 'first-instance'] = first_instance_dict[duplicate_id]
     else:
-        # Store the Vendor-Reported-Date for the first instance
+        # Leave the status blank for the first occurrence
         first_instance_dict[duplicate_id] = vendor_reported_date
+        combined_results.at[index, 'duplicate-Status'] = ''
+        combined_results.at[index, 'first-instance'] = vendor_reported_date
 
 # Write the updated DataFrame to the "results" sheet
 with pd.ExcelWriter(gold_tracker_path, engine='openpyxl') as writer:
@@ -297,15 +313,6 @@ with pd.ExcelWriter(gold_tracker_path, engine='openpyxl') as writer:
         del writer.book['results']
     combined_results.to_excel(writer, sheet_name='results', index=False)
     print("Data written to the results sheet.")
-
-    # Remove the existing "Database" sheet if it exists
-    if 'Database' in writer.book.sheetnames:
-        del writer.book['Database']
-    
-    # Add the "Database" sheet from vendor-tracker-updated.xlsx to gold-tracker.xlsx
-    vendor_database_df = pd.read_excel(vendor_tracker_updated_path, sheet_name="Database")
-    vendor_database_df.to_excel(writer, sheet_name='Database', index=False)
-    print("Database sheet updated successfully.")
 
 # Save the updated workbook
 gold_tracker_workbook.save(gold_tracker_path)
