@@ -3,6 +3,7 @@ import pandas as pd
 from openpyxl import load_workbook
 import re
 from fuzzywuzzy import fuzz
+from datetime import datetime
 
 # Functions from the 2nd script
 
@@ -51,7 +52,33 @@ def update_results_status():
         matching_scope_row = Scope_df[Scope_df['ip'] == row['ip']]
         if not matching_scope_row.empty:
             results_df.at[index, 'Country'] = matching_scope_row['country'].values[0]
+		
+    # Ensure 'reason' column exists in results_df
+    if 'reason' not in results_df.columns:
+        results_df['reason'] = ''
 
+    # Step 1.5: Sync Country/Region in results_df based on scope_df, without changing Status
+    for index, row in results_df.iterrows():
+        matching_scope_row = Scope_df[Scope_df['IP'] == row['IP']]
+        if not matching_scope_row.empty:
+            scope_country = matching_scope_row['Country'].values[0]
+            scope_region = matching_scope_row['Region'].values[0]
+    
+            correction_made = False
+    
+            if row['Country'] != scope_country:
+                results_df.at[index, 'Country'] = scope_country
+                correction_made = True
+            if row['Region'] != scope_region:
+                results_df.at[index, 'Region'] = scope_region
+                correction_made = True
+    
+            if correction_made:
+                results_df.at[index, 'Updated Entry'] = 'Region Country corrected, '
+            else:
+                # Optional: Set it blank or a default note if needed
+                results_df.at[index, 'Updated Entry'] = ''
+			
     # Step 2: Concatenate Region, Country, and IP columns to create UID in results sheet
     results_df['UID'] = results_df['Region'] + results_df['Country'] + results_df['IP']
 
@@ -133,13 +160,14 @@ def update_results_status():
     print(Database_df.columns)
     results_df['mapped-vulnerability'] = results_df['Vulnerability'].apply(lambda x: find_common_name(x, Database_df))
 
+    # Ensure that when a new entry is added, the current date is set for "Vendor-Reported-Date"
+    current_date = datetime.today().strftime('%Y-%m-%d')
+
     for Vulnerability in results_df['Vulnerability']:
         if find_common_name(Vulnerability, Database_df) is None:
             results_df.loc[results_df['Vulnerability'] == Vulnerability, 'mapped-vulnerability'] = 'Uncategorized'
-            new_row = {'common name': 'Uncategorized', 'Vulnerability': Vulnerability}
+            new_row = {'common name': 'Uncategorized', 'Vulnerability': Vulnerability, 'Vendor-Reported-Date': current_date}
             Database_df = Database_df.append(new_row, ignore_index=True)
-			
-    results_df['duplicate-id'] = results_df['IP'] + ' ' + results_df['Port'].astype(str) + ' ' + results_df['mapped-vulnerability']
 
     
 	
@@ -197,11 +225,18 @@ field_mapping = {
 # Initialize an empty DataFrame with the desired columns
 merged_df = pd.DataFrame(columns=desired_columns)
 
+# Get today's date
+current_date = datetime.today().strftime('%Y-%m-%d')
+
 # Loop through each file in the input folder
 for filename in os.listdir(input_folder_path):
     if filename.endswith(".xlsx"):
         file_path = os.path.join(input_folder_path, filename)
         df = pd.read_excel(file_path)
+
+        # Set the "Vendor-Reported-Date" to today's date for all entries in the file
+        df['Vendor-Reported-Date'] = current_date
+
 
         # Iterate through the desired columns and their mappings
         for vendor_col, possible_names in field_mapping.items():
@@ -286,6 +321,9 @@ combined_results['first-instance'] = pd.to_datetime(combined_results['first-inst
 # Ensure 'Vendor-Reported-Date' is in datetime format
 combined_results['Vendor-Reported-Date'] = pd.to_datetime(combined_results['Vendor-Reported-Date'], errors='coerce')
 
+# Sort by duplicate-id and Vendor-Reported-Date to ensure earliest instance is first
+combined_results.sort_values(by=['duplicate-id', 'Vendor-Reported-Date'], inplace=True, na_position='last')
+
 # Create a dictionary to track the first instance of each duplicate ID
 first_instance_dict = {}
 
@@ -295,12 +333,9 @@ for index, row in combined_results.iterrows():
     vendor_reported_date = row.get('Vendor-Reported-Date')
 
     if duplicate_id in first_instance_dict:
-        # Update the duplicate Status for all rows with the same duplicate ID except the first instance
         combined_results.at[index, 'duplicate-Status'] = 'duplicate'
-        # Set the 'first-instance' column to the date of the first occurrence
         combined_results.at[index, 'first-instance'] = first_instance_dict[duplicate_id]
     else:
-        # Leave the status blank for the first occurrence
         first_instance_dict[duplicate_id] = vendor_reported_date
         combined_results.at[index, 'duplicate-Status'] = ''
         combined_results.at[index, 'first-instance'] = vendor_reported_date
