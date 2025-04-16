@@ -1,6 +1,10 @@
-python3 data-standardization.py
+└─# python3 data-standardization.py
+Trying to read tracker file from: /home/kali/Desktop/script/process-pentest/files/input/other/Archer.xlsx
+Trying to read tracker file from: /home/kali/Desktop/script/process-pentest/files/input/other/Database.xlsx
+Trying to read tracker file from: /home/kali/Desktop/script/process-pentest/files/input/other/Ports.xlsx
+Trying to read tracker file from: /home/kali/Desktop/script/process-pentest/files/input/other/Scope.xlsx
 Traceback (most recent call last):
-  File "/home/kali/Desktop/script/final-cuts/data-standardization.py", line 270, in <module>
+  File "/home/kali/Desktop/script/final-cuts/data-standardization.py", line 271, in <module>
     tracker_df = pd.read_excel(tracker_file_path)
   File "/usr/lib/python3/dist-packages/pandas/util/_decorators.py", line 311, in wrapper
     return func(*args, **kwargs)
@@ -14,5 +18,4 @@ Traceback (most recent call last):
     self._RealGetContents()
   File "/usr/lib/python3.10/zipfile.py", line 1334, in _RealGetContents
     raise BadZipFile("File is not a zip file")
-zipfile.BadZipFile: File is not a zip file
-                                               
+
