@@ -1,58 +1,18 @@
-┌──(kali㉿kali)-[~/Desktop/script/final-cuts]
-└─$ curl -vkL https://nest.metlife.com/lb-search/172.24.5.165                              
-*   Trying 10.9.45.22:443...
-* Connected to nest.metlife.com (10.9.45.22) port 443 (#0)
-* ALPN: offers h2
-* ALPN: offers http/1.1
-* TLSv1.0 (OUT), TLS header, Certificate Status (22):
-* TLSv1.3 (OUT), TLS handshake, Client hello (1):
-* TLSv1.2 (IN), TLS header, Certificate Status (22):
-* TLSv1.3 (IN), TLS handshake, Server hello (2):
-* TLSv1.2 (OUT), TLS header, Finished (20):
-* TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1):
-* TLSv1.2 (OUT), TLS header, Certificate Status (22):
-* TLSv1.3 (OUT), TLS handshake, Client hello (1):
-* TLSv1.2 (IN), TLS header, Finished (20):
-* TLSv1.2 (IN), TLS header, Certificate Status (22):
-* TLSv1.3 (IN), TLS handshake, Server hello (2):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):
-* TLSv1.3 (IN), TLS handshake, Certificate (11):
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* TLSv1.3 (IN), TLS handshake, CERT verify (15):
-* TLSv1.3 (IN), TLS handshake, Finished (20):
-* TLSv1.2 (OUT), TLS header, Supplemental data (23):
-* TLSv1.3 (OUT), TLS handshake, Finished (20):
-* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384
-* ALPN: server accepted http/1.1
-* Server certificate:
-*  subject: C=US; ST=Pennsylvania; L=Clarks Summit; O=Metlife, Inc.; CN=nest.metlife.com
-*  start date: Mar 31 18:14:26 2023 GMT
-*  expire date: Mar 30 18:14:26 2025 GMT
-*  issuer: DC=NET; DC=METNET; CN=MetLife SUB CA RISC 01
-*  SSL certificate verify result: self-signed certificate in certificate chain (19), continuing anyway.
-* TLSv1.2 (OUT), TLS header, Supplemental data (23):
-> GET /lb-search/172.24.5.165 HTTP/1.1
-> Host: nest.metlife.com
-> User-Agent: curl/7.84.0
-> Accept: */*
-> 
-* TLSv1.2 (IN), TLS header, Supplemental data (23):
-* Mark bundle as not supporting multiuse
-< HTTP/1.1 200 OK
-< Server: nginx/1.22.1
-< Date: Tue, 18 Jun 2024 15:37:30 GMT
-< Content-Type: text/html
-< Content-Length: 637
-< Last-Modified: Tue, 28 May 2024 15:38:01 GMT
-< Connection: keep-alive
-< ETag: "6655fa59-27d"
-< X-Frame-Options: DENY
-< X-Content-Type-Options: nosniff
-< X-XSS-Protection: 1; mode=block
-< Accept-Ranges: bytes
-< Set-Cookie: NSC_ESNS=019c44f5-a9ba-1671-9678-5a91306d3554_2579226886_0699518582_00000000004321834123; Path=/; Expires=Tue, 18-Jun-2024 15:37:45 GMT
-< Strict-Transport-Security: max-age=31536000; includeSubDomains
-< 
-* Connection #0 to host nest.metlife.com left intact
-<!doctype html><html lang=""><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.ico"><script defer="defer" src="/js/chunk-vendors.fd237820.js"></script><script defer="defer" src="/js/app.5979c8d4.js"></script><link href="/css/chunk-vendors.de510de6.css" rel="stylesheet"><link href="/css/app.503e0b99.css" rel="stylesheet"></head><body><noscript><strong>We're sorry but main doesn't work properly without JavaScript enabled. Please enable it to continue.</strong></noscript><div id="app"></div></body></html>   
+python3 data-standardization.py
+Traceback (most recent call last):
+  File "/home/kali/Desktop/script/final-cuts/data-standardization.py", line 270, in <module>
+    tracker_df = pd.read_excel(tracker_file_path)
+  File "/usr/lib/python3/dist-packages/pandas/util/_decorators.py", line 311, in wrapper
+    return func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/pandas/io/excel/_base.py", line 364, in read_excel
+    io = ExcelFile(io, storage_options=storage_options, engine=engine)
+  File "/usr/lib/python3/dist-packages/pandas/io/excel/_base.py", line 1191, in __init__
+    ext = inspect_excel_format(
+  File "/usr/lib/python3/dist-packages/pandas/io/excel/_base.py", line 1090, in inspect_excel_format
+    zf = zipfile.ZipFile(stream)  # type: ignore[arg-type]
+  File "/usr/lib/python3.10/zipfile.py", line 1267, in __init__
+    self._RealGetContents()
+  File "/usr/lib/python3.10/zipfile.py", line 1334, in _RealGetContents
+    raise BadZipFile("File is not a zip file")
+zipfile.BadZipFile: File is not a zip file
+                                               
